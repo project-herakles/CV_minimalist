@@ -55,9 +55,54 @@ bool FLIRCamera::Initialize()
     std::cout << "Discovered " << camera_list.GetSize() << " FLIR cameras, using #0" << std::endl;
     m_camera = camera_list.GetByIndex(0);
     camera_list.Clear();
-    m_TL_device = &(m_camera->GetTLDeviceNodeMap());
     m_camera->Init();
+    m_TL_device = &(m_camera->GetTLDeviceNodeMap());
     m_node_map = &(m_camera->GetNodeMap());
+    if(m_camera->PixelFormat == NULL || m_camera->PixelFormat.GetAccessMode() != Spinnaker::GenApi::RW)
+    {
+        m_camera->DeInit();
+        std::cout << "Camera pixel format not available" << std::endl;
+        return false;
+    }
+    m_camera->PixelFormat.SetValue(Spinnaker::PixelFormat_RGB8);
+    if(m_camera->Width == NULL || m_camera->Width.GetAccessMode() != Spinnaker::GenApi::RW || m_camera->Width.GetInc() == 0 || m_camera->Width.GetMax() == 0)
+    {
+        m_camera->DeInit();
+        std::cout << "Camera width not available" << std::endl;
+        return false;
+    }
+    m_camera->Width.SetValue(640);
+    if(m_camera->Height == NULL || m_camera->Height.GetAccessMode() != Spinnaker::GenApi::RW || m_camera->Height.GetInc() == 0 || m_camera->Height.GetMax() == 0)
+    {
+        m_camera->DeInit();
+        std::cout << "Camera width not available" << std::endl;
+        return false;
+    }
+    m_camera->Height.SetValue(480);
+    Spinnaker::GenApi::CEnumerationPtr ptrEVAuto = m_node_map->GetNode("pgrExposureCompensationAuto");
+    if(!Spinnaker::GenApi::IsAvailable(ptrEVAuto) || !Spinnaker::GenApi::IsWritable(ptrEVAuto))
+    {
+        m_camera->DeInit();
+        std::cout << "EV auto switch is not available" << std::endl;
+        return false;
+    }
+    Spinnaker::GenApi::CEnumEntryPtr ptrEVAutoOff = ptrEVAuto->GetEntryByName("Off");
+    if(!Spinnaker::GenApi::IsAvailable(ptrEVAutoOff) || !Spinnaker::GenApi::IsReadable(ptrEVAutoOff))
+    {
+        m_camera->DeInit();
+        std::cout << "EV auto switch off is not available" << std::endl;
+        return false;
+    }
+    ptrEVAuto->SetIntValue(ptrEVAutoOff->GetValue());
+    std::cout << "EV automatic switched off" << std::endl;
+    Spinnaker::GenApi::CFloatPtr ptrEV = m_node_map->GetNode("pgrExposureCompensation");
+    if(!Spinnaker::GenApi::IsAvailable(ptrEV) || !Spinnaker::GenApi::IsWritable(ptrEV))
+    {
+        m_camera->DeInit();
+        std::cout << "EV not available" << std::endl;
+        return false;
+    }
+    ptrEV->SetValue(-1.0f);
     m_initialized = true;
     std::cout << "Camera #0 initialized" << std::endl;
     std::cout << "Resolution: " << m_camera->Width.GetValue() << "x" << m_camera->Height.GetValue() << std::endl;
@@ -106,16 +151,17 @@ bool FLIRCamera::EndAcquisition()
 
 bool FLIRCamera::RetrieveImage(cv::Mat &image)
 {
-    Spinnaker::ImagePtr p_result_image = m_camera->GetNextImage();
-    if(p_result_image->IsIncomplete())
+    Spinnaker::ImagePtr p_image = m_camera->GetNextImage();
+    if(p_image->IsIncomplete())
     {
-        std::cout << "Image incomplete: " << Spinnaker::Image::GetImageStatusDescription(p_result_image->GetImageStatus()) << std::endl;
+        std::cout << "Image incomplete: " << Spinnaker::Image::GetImageStatusDescription(p_image->GetImageStatus()) << std::endl;
         return false;
     }
-    const size_t width = p_result_image->GetWidth();
-    const size_t height = p_result_image->GetHeight();
-    Spinnaker::ImagePtr p_converted_image = p_result_image->Convert(Spinnaker::PixelFormatEnums::PixelFormat_BGR8, Spinnaker::ColorProcessingAlgorithm::HQ_LINEAR);
-    image = cv::Mat(height, width, CV_8UC3, p_converted_image->GetData(), p_converted_image->GetStride());
-    p_result_image->Release();
+    const size_t width = p_image->GetWidth();
+    const size_t height = p_image->GetHeight();
+    Spinnaker::ImagePtr p_converted_image = p_image->Convert(Spinnaker::PixelFormatEnums::PixelFormat_BGR8, Spinnaker::ColorProcessingAlgorithm::HQ_LINEAR);
+    cv::Mat intermediate_image = cv::Mat(height, width, CV_8UC3, p_converted_image->GetData(), p_converted_image->GetStride());
+    image = intermediate_image.clone();
+    p_image->Release();
     return true;
 }

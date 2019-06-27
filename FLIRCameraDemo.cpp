@@ -20,15 +20,25 @@
 */
 
 #include "FLIRCamera.h"
-
+#include <bits/stdc++.h>
+using namespace std;
 int main()
 {
     FLIRCamera camera;
     if(!camera.Initialize()) return 1;
     if(!camera.BeginAcquisition()) return 1;
     cv::Mat img;
+    int frame_count = 0;
+    clock_t last_frame_count = clock();
     while(camera.RetrieveImage(img))
     {
+        if(clock() - last_frame_count > CLOCKS_PER_SEC)
+        {
+            cout << frame_count << endl;
+            last_frame_count = clock();
+            frame_count = 0;
+        }
+        ++frame_count;
         cv::namedWindow("Image Acquisition");
         cv::imshow("Image Acquisition", img);
         cv::moveWindow("Image Acquisition", 0, 0);
